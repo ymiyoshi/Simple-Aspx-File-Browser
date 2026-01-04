@@ -1,38 +1,82 @@
 <%@ Page Language="C#" ContentType="text/html" ResponseEncoding="UTF-8" %>
-    <%@ Import Namespace="System.IO" %>
-        <%@ Import Namespace="System.Linq" %>
-            <%@ Import Namespace="System.Web" %>
-                <script runat="server">
-    protected void Page_Load(object sender, EventArgs e)
-                    {
-        string fileParam = Request.QueryString["file"];
-                        if (!string.IsNullOrEmpty(fileParam)) {
-                            if (fileParam.Contains("..") || fileParam.Contains(":") || fileParam.StartsWith("/") || fileParam.StartsWith("\\")) {
-                                Response.StatusCode = 403;
-                                Response.End();
-                                return;
-                            }
+<%@ Import Namespace="System.IO" %>
+<%@ Import Namespace="System.Linq" %>
+<%@ Import Namespace="System.Web" %>
+<%@ Import Namespace="System.Configuration" %>
+<%@ Import Namespace="System.Collections.Generic" %>
+<script runat="server">
+    // 登録フォルダのリストを取得
+    private List<string> GetRegisteredFolders()
+    {
+        var folders = new List<string>();
+        var appSettings = ConfigurationManager.AppSettings;
+        foreach (string key in appSettings.AllKeys)
+        {
+            if (key.StartsWith("Folder", StringComparison.OrdinalIgnoreCase))
+            {
+                folders.Add(appSettings[key]);
+            }
+        }
+        return folders;
+    }
 
-            string baseDir = Server.MapPath(".");
+    // rootパラメータからベースディレクトリを取得
+    private string GetBaseDirectory(string rootParam, List<string> folders)
+    {
+        if (string.IsNullOrEmpty(rootParam)) return null;
+        int rootIndex;
+        if (!int.TryParse(rootParam, out rootIndex)) return null;
+        if (rootIndex < 0 || rootIndex >= folders.Count) return null;
+        return folders[rootIndex];
+    }
+
+    protected void Page_Load(object sender, EventArgs e)
+    {
+        string fileParam = Request.QueryString["file"];
+        if (!string.IsNullOrEmpty(fileParam))
+        {
+            // パストラバーサル対策
+            if (fileParam.Contains("..") || fileParam.Contains(":") || fileParam.StartsWith("/") || fileParam.StartsWith("\\"))
+            {
+                Response.StatusCode = 403;
+                Response.End();
+                return;
+            }
+
+            // rootパラメータからベースディレクトリを取得
+            string rootParam = Request.QueryString["root"];
+            var folders = GetRegisteredFolders();
+            string baseDir = GetBaseDirectory(rootParam, folders);
+
+            if (baseDir == null)
+            {
+                Response.StatusCode = 403;
+                Response.Write("Invalid root parameter.");
+                Response.End();
+                return;
+            }
+
             string physicalPath = Path.Combine(baseDir, fileParam);
             FileInfo fi = new FileInfo(physicalPath);
 
-                            if (fi.Exists) {
-                                Response.Clear();
-                                Response.ContentType = "application/octet-stream";
-                                Response.AddHeader("Content-Disposition", "attachment; filename=\"" + HttpUtility.UrlEncode(fi.Name, System.Text.Encoding.UTF8) + "\"");
-                                Response.AddHeader("Content-Length", fi.Length.ToString());
-                                Response.TransmitFile(fi.FullName);
-                                Response.End();
-                            }
-                            else {
-                                Response.StatusCode = 404;
-                                Response.Write("File not found.");
-                                Response.End();
-                            }
-                        }
-                    }
-                </script>
+            if (fi.Exists)
+            {
+                Response.Clear();
+                Response.ContentType = "application/octet-stream";
+                Response.AddHeader("Content-Disposition", "attachment; filename=\"" + HttpUtility.UrlEncode(fi.Name, System.Text.Encoding.UTF8) + "\"");
+                Response.AddHeader("Content-Length", fi.Length.ToString());
+                Response.TransmitFile(fi.FullName);
+                Response.End();
+            }
+            else
+            {
+                Response.StatusCode = 404;
+                Response.Write("File not found.");
+                Response.End();
+            }
+        }
+    }
+</script>
                 <!DOCTYPE html>
                 <html lang="ja">
 
@@ -160,6 +204,27 @@
                             font-weight: 600;
                         }
 
+                        .error-folder {
+                            display: flex;
+                            align-items: center;
+                            gap: 8px;
+                            color: #991b1b;
+                        }
+
+                        .error-icon {
+                            color: #dc2626;
+                        }
+
+                        .status-ok {
+                            color: #059669;
+                            font-weight: 500;
+                        }
+
+                        .status-error {
+                            color: #dc2626;
+                            font-weight: 500;
+                        }
+
                         /* Mobile Responsive Styles */
                         @media screen and (max-width: 768px) {
                             body {
@@ -240,90 +305,224 @@
                     </style>
                 </head>
 
-                <body>
-                    <% string relativePath=Request.QueryString["dir"]; if (string.IsNullOrEmpty(relativePath)) {
-                        relativePath="" ; } if (relativePath.Contains("..") || relativePath.StartsWith("/") ||
-                        relativePath.StartsWith("\\") || relativePath.Contains(":")) { relativePath="" ; } string
-                        baseDir=Server.MapPath("."); string currentPhysicalPath=Path.Combine(baseDir, relativePath);
-                        DirectoryInfo di=null; try { di=new DirectoryInfo(currentPhysicalPath); if (!di.Exists) { di=new
-                        DirectoryInfo(baseDir); relativePath="" ; } } catch { di=new DirectoryInfo(baseDir);
-                        relativePath="" ; } %>
+<body>
+<%
+    // 登録フォルダリストを取得
+    var registeredFolders = GetRegisteredFolders();
+    string rootParam = Request.QueryString["root"];
+    string relativePath = Request.QueryString["dir"] ?? "";
 
-                        <div class="container">
-                            <h2>Location: /<%= relativePath.Replace("\\", "/" ) %>
-                            </h2>
+    // パストラバーサル対策
+    if (relativePath.Contains("..") || relativePath.StartsWith("/") ||
+        relativePath.StartsWith("\\") || relativePath.Contains(":"))
+    {
+        relativePath = "";
+    }
 
-                            <div class="table-card">
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th>Name</th>
-                                            <th>Last Modified</th>
-                                            <th>Size</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <% if (!string.IsNullOrEmpty(relativePath)) { string
-                                            parentDir=Path.GetDirectoryName(relativePath); if
-                                            (string.IsNullOrEmpty(parentDir) || parentDir=="\\" || parentDir=="/" )
-                                            parentDir="" ; string parentLink=string.IsNullOrEmpty(parentDir)
-                                            ? "index.aspx" : "index.aspx?dir=" + HttpUtility.UrlEncode(parentDir); %>
-                                            <tr>
-                                                <td colspan="3">
-                                                    <a href="<%= parentLink %>" class="folder up-level">
-                                                        <span class="folder-icon">&#8617;</span> Up One Level
-                                                    </a>
-                                                </td>
-                                            </tr>
-                                            <% } try { foreach (var dir in di.GetDirectories().OrderBy(d=> d.Name)) {
-                                                string nextDir = Path.Combine(relativePath, dir.Name);
-                                                string dirLink = "index.aspx?dir=" + HttpUtility.UrlEncode(nextDir);
-                                                %>
-                                                <tr>
-                                                    <td data-label="Name">
-                                                        <a href="<%= dirLink %>" class="folder">
-                                                            <span class="folder-icon">&#128193;</span>
-                                                            <%= dir.Name %>
-                                                        </a>
-                                                    </td>
-                                                    <td data-label="Date">
-                                                        <%= dir.LastWriteTime.ToString("yyyy/MM/dd HH:mm") %>
-                                                    </td>
-                                                    <td data-label="Size">-</td>
-                                                </tr>
-                                                <% } } catch {} try { var files=di.GetFiles() .Where(f=>
-                                                    !f.Name.Equals("index.aspx", StringComparison.OrdinalIgnoreCase) &&
-                                                    !f.Name.Equals("web.config", StringComparison.OrdinalIgnoreCase))
-                                                    .OrderByDescending(f => f.LastWriteTime);
+    bool isRootView = string.IsNullOrEmpty(rootParam);
+    int rootIndex = -1;
+    string baseDir = null;
+    DirectoryInfo di = null;
+    bool baseDirExists = false;
 
-                                                    foreach (var file in files) {
-                                                    string webPath = relativePath.Replace("\\", "/");
-                                                    string filePathForDownload = (string.IsNullOrEmpty(webPath) ? "" :
-                                                    webPath +
-                                                    "/") + file.Name;
+    if (!isRootView)
+    {
+        // rootパラメータの検証
+        if (int.TryParse(rootParam, out rootIndex) && rootIndex >= 0 && rootIndex < registeredFolders.Count)
+        {
+            baseDir = registeredFolders[rootIndex];
+            string currentPhysicalPath = Path.Combine(baseDir, relativePath);
+            try
+            {
+                di = new DirectoryInfo(currentPhysicalPath);
+                if (!di.Exists)
+                {
+                    di = new DirectoryInfo(baseDir);
+                    relativePath = "";
+                }
+                baseDirExists = Directory.Exists(baseDir);
+            }
+            catch
+            {
+                di = new DirectoryInfo(baseDir);
+                relativePath = "";
+                baseDirExists = Directory.Exists(baseDir);
+            }
+        }
+        else
+        {
+            // 無効なrootパラメータの場合はルートビューにリダイレクト
+            isRootView = true;
+        }
+    }
+%>
 
-                                                    string link = "index.aspx?file=" +
-                                                    HttpUtility.UrlEncode(filePathForDownload);
-                                                    %>
-                                                    <tr>
-                                                        <td data-label="Name">
-                                                            <a href="<%= link %>" class="file">
-                                                                <span class="file-icon">&#128196;</span>
-                                                                <%= file.Name %>
-                                                            </a>
-                                                        </td>
-                                                        <td data-label="Date">
-                                                            <%= file.LastWriteTime.ToString("yyyy/MM/dd HH:mm") %>
-                                                        </td>
-                                                        <td data-label="Size">
-                                                            <%= (file.Length / 1024.0).ToString("N0") %> KB
-                                                        </td>
-                                                    </tr>
-                                                    <% } } catch {} %>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                </body>
+<div class="container">
+<% if (isRootView) { %>
+    <!-- ルート画面: 登録フォルダ一覧 -->
+    <h2>Registered Folders</h2>
+
+    <div class="table-card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Last Modified</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+            <%
+            for (int i = 0; i < registeredFolders.Count; i++)
+            {
+                string folderPath = registeredFolders[i];
+                bool exists = Directory.Exists(folderPath);
+                string folderLink = "index.aspx?root=" + i;
+                DirectoryInfo folderInfo = null;
+                string lastModified = "-";
+
+                if (exists)
+                {
+                    try
+                    {
+                        folderInfo = new DirectoryInfo(folderPath);
+                        lastModified = folderInfo.LastWriteTime.ToString("yyyy/MM/dd HH:mm");
+                    }
+                    catch { }
+                }
+            %>
+                <tr>
+                    <td data-label="Name">
+                        <% if (exists) { %>
+                        <a href="<%= folderLink %>" class="folder">
+                            <span class="folder-icon">&#128193;</span>
+                            <%= folderPath %>
+                        </a>
+                        <% } else { %>
+                        <span class="folder error-folder">
+                            <span class="folder-icon error-icon">&#9888;</span>
+                            <%= folderPath %>
+                        </span>
+                        <% } %>
+                    </td>
+                    <td data-label="Date"><%= lastModified %></td>
+                    <td data-label="Status">
+                        <% if (exists) { %>
+                        <span class="status-ok">OK</span>
+                        <% } else { %>
+                        <span class="status-error">Not Found</span>
+                        <% } %>
+                    </td>
+                </tr>
+            <% } %>
+            </tbody>
+        </table>
+    </div>
+
+<% } else { %>
+    <!-- フォルダブラウジング画面 -->
+    <h2>Location: <%= baseDir %><%= string.IsNullOrEmpty(relativePath) ? "" : "\\" + relativePath %></h2>
+
+    <div class="table-card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Last Modified</th>
+                    <th>Size</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Up One Level -->
+                <tr>
+                    <td colspan="3">
+                        <%
+                        string parentLink;
+                        if (string.IsNullOrEmpty(relativePath))
+                        {
+                            // ルートフォルダの直下 → フォルダ一覧に戻る
+                            parentLink = "index.aspx";
+                        }
+                        else
+                        {
+                            // サブフォルダ内 → 親ディレクトリへ
+                            string parentDir = Path.GetDirectoryName(relativePath);
+                            if (string.IsNullOrEmpty(parentDir) || parentDir == "\\" || parentDir == "/")
+                            {
+                                parentLink = "index.aspx?root=" + rootIndex;
+                            }
+                            else
+                            {
+                                parentLink = "index.aspx?root=" + rootIndex + "&dir=" + HttpUtility.UrlEncode(parentDir);
+                            }
+                        }
+                        %>
+                        <a href="<%= parentLink %>" class="folder up-level">
+                            <span class="folder-icon">&#8617;</span> Up One Level
+                        </a>
+                    </td>
+                </tr>
+
+                <!-- サブフォルダ一覧 -->
+                <%
+                try
+                {
+                    foreach (var dir in di.GetDirectories().OrderBy(d => d.Name))
+                    {
+                        string nextDir = string.IsNullOrEmpty(relativePath) ? dir.Name : Path.Combine(relativePath, dir.Name);
+                        string dirLink = "index.aspx?root=" + rootIndex + "&dir=" + HttpUtility.UrlEncode(nextDir);
+                %>
+                <tr>
+                    <td data-label="Name">
+                        <a href="<%= dirLink %>" class="folder">
+                            <span class="folder-icon">&#128193;</span>
+                            <%= dir.Name %>
+                        </a>
+                    </td>
+                    <td data-label="Date"><%= dir.LastWriteTime.ToString("yyyy/MM/dd HH:mm") %></td>
+                    <td data-label="Size">-</td>
+                </tr>
+                <%
+                    }
+                }
+                catch { }
+                %>
+
+                <!-- ファイル一覧 -->
+                <%
+                try
+                {
+                    var files = di.GetFiles()
+                        .Where(f => !f.Name.Equals("index.aspx", StringComparison.OrdinalIgnoreCase) &&
+                                    !f.Name.Equals("web.config", StringComparison.OrdinalIgnoreCase))
+                        .OrderByDescending(f => f.LastWriteTime);
+
+                    foreach (var file in files)
+                    {
+                        string webPath = relativePath.Replace("\\", "/");
+                        string filePathForDownload = (string.IsNullOrEmpty(webPath) ? "" : webPath + "/") + file.Name;
+                        string link = "index.aspx?root=" + rootIndex + "&file=" + HttpUtility.UrlEncode(filePathForDownload);
+                %>
+                <tr>
+                    <td data-label="Name">
+                        <a href="<%= link %>" class="file">
+                            <span class="file-icon">&#128196;</span>
+                            <%= file.Name %>
+                        </a>
+                    </td>
+                    <td data-label="Date"><%= file.LastWriteTime.ToString("yyyy/MM/dd HH:mm") %></td>
+                    <td data-label="Size"><%= (file.Length / 1024.0).ToString("N0") %> KB</td>
+                </tr>
+                <%
+                    }
+                }
+                catch { }
+                %>
+            </tbody>
+        </table>
+    </div>
+<% } %>
+</div>
+</body>
 
                 </html>
